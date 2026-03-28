@@ -1,0 +1,4 @@
+{
+  "name": "Fix Cart Total",
+  "entry": "src/index.js"
+}

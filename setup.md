@@ -5,7 +5,7 @@ This guide covers the two production pieces of Sidechick:
 - the backend API on Render
 - the VS Code extension on the Visual Studio Marketplace
 
-It also includes the admin-only dev-problem upload flow, because your extension now fetches remote Dev challenges from the backend.
+It also includes the admin-only Dev problem upload flow, because the extension now fetches remote Dev challenges from the backend.
 
 ## 1. What Gets Deployed
 
@@ -20,7 +20,7 @@ The backend lives in [backend](C:\Users\Admin\Desktop\Development\sidechicks\sid
 
 ### Extension
 
-The extension lives at the repo root and is published to the VS Code Marketplace as a VSIX/package.
+The extension lives at the repo root and is published to the VS Code Marketplace as a VSIX package.
 
 The extension talks to the backend through the `sidechick.backendBaseUrl` setting.
 
@@ -36,48 +36,62 @@ In Render:
 2. Choose `Web Service`
 3. Connect your GitHub repo
 4. Set `Root Directory` to `backend`
-5. Use these commands:
+5. Use:
    - Build Command: `npm install`
    - Start Command: `npm start`
 
-### 2.2 Add a persistent disk
+### 2.2 Production storage on Render
 
-This is required.
+If you want uploaded Dev problems and SQLite data to persist across redeploys and restarts, attach a persistent disk.
 
-Render's filesystem is ephemeral by default, so without a persistent disk your uploaded problem zips and SQLite database will disappear after redeploys or restarts.
-
-Add a disk in the Render service settings:
+Recommended disk setup:
 
 - Mount Path: `/var/data`
-- Size: `1 GB` is enough to start
+- Size: `1 GB` to start
 
-### 2.3 Set environment variables
+Then set:
 
-Add these in Render:
+- `DB_PATH=/var/data/sidechick.db`
+- `UPLOADS_DIR=/var/data/uploads/problems`
+
+### 2.3 Free Render mode
+
+If you do not want to pay for a disk yet, the backend can still run using temporary storage.
+
+Set:
+
+- `DB_PATH=/tmp/sidechick.db`
+- `UPLOADS_DIR=/tmp/uploads/problems`
+
+This works for demos and testing, but uploaded Dev problems and SQLite data can disappear after restarts or redeploys.
+
+### 2.4 Required environment variables
+
+Set these in Render:
 
 - `ADMIN_TOKEN`
   Use a long secret string. This protects the admin upload route.
 - `DB_PATH`
-  Set to `/var/data/sidechick.db`
+  Use either `/var/data/sidechick.db` or `/tmp/sidechick.db`
 - `UPLOADS_DIR`
-  Set to `/var/data/uploads/problems`
+  Use either `/var/data/uploads/problems` or `/tmp/uploads/problems`
 
 Optional:
 
 - `PORT`
   Usually not needed on Render because Render already provides it.
 
-### 2.4 Health check
+### 2.5 Health check
 
 Set the health check path to:
 
 `/api/health`
 
-### 2.5 Deploy and copy the backend URL
+### 2.6 Backend URL
 
-After deploy, Render will give you a public URL like:
+After deploy, Render gives you a public URL like:
 
-`https://your-service-name.onrender.com`
+`https://sidechick.onrender.com`
 
 You will use this URL:
 
@@ -88,7 +102,7 @@ You will use this URL:
 
 Only you need this flow.
 
-### 3.1 Prepare the problem zip
+### 3.1 Prepare the zip
 
 Zip a Dev problem folder.
 
@@ -101,7 +115,7 @@ The archive should contain the actual challenge project, including:
 
 Best practice:
 
-- zip the project folder contents cleanly
+- zip the project root cleanly
 - keep `.sidechick.json` at the project root inside the zip
 
 ### 3.2 Upload from your machine
@@ -110,83 +124,52 @@ From [backend](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\backend):
 
 ```powershell
 $env:ADMIN_TOKEN="your-secret-token"
-$env:SIDECHICK_ADMIN_URL="https://your-service-name.onrender.com"
+$env:SIDECHICK_ADMIN_URL="https://sidechick.onrender.com"
 npm run upload:problem -- --file "C:\path\problem.zip" --title "Cart Summary Bug" --slug "cart-summary-bug" --difficulty medium --description "Fix the broken cart totals"
 ```
 
-What this does:
+### 3.3 Verify the API
 
-- uploads the zip to the backend
-- stores the file under the Render disk
-- saves metadata in SQLite
-- makes the problem available to the extension
+Open these in the browser:
 
-### 3.3 Verify the remote problem API
-
-You can open these in the browser:
-
-- `https://your-service-name.onrender.com/api/health`
-- `https://your-service-name.onrender.com/api/problems/dev`
-- `https://your-service-name.onrender.com/api/problems/dev/random`
+- `https://sidechick.onrender.com/api/health`
+- `https://sidechick.onrender.com/api/problems/dev`
+- `https://sidechick.onrender.com/api/problems/dev/random`
 
 ## 4. Extension Configuration Before Marketplace Publish
 
-Before publishing, update the extension to point to production.
+Before publishing, confirm the extension points to production.
 
-### 4.1 Change the default backend URL
+### 4.1 Backend URL default
 
-In [package.json](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\package.json), change the default value of:
-
-`sidechick.backendBaseUrl`
-
-from:
-
-`http://127.0.0.1:3001`
-
-to your Render backend URL:
-
-`https://your-service-name.onrender.com`
-
-This is important. If you skip it, installed users will point to localhost and Dev mode remote fetches will fail unless they change settings manually.
-
-### 4.2 Add publisher details
-
-Before Marketplace publish, your extension manifest must include a `publisher` field in [package.json](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\package.json).
+In [package.json](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\package.json), `sidechick.backendBaseUrl` should point to your production backend URL.
 
 Example:
 
-```json
-"publisher": "your-publisher-id"
-```
+`https://sidechick.onrender.com`
 
-### 4.3 Replace the Marketplace icon with PNG
+### 4.2 Publisher
+
+Before Marketplace publish, add your real `publisher` field in [package.json](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\package.json).
+
+### 4.3 Icon
 
 For Marketplace publishing, use a PNG icon of at least `128x128`.
 
-Current repo state:
-
-- the extension uses an `.ico` for local identity
-
-Before publishing, create a PNG version and point `package.json` `icon` to that PNG file.
-
-Example:
-
-```json
-"icon": "media/sidechick.png"
-```
+The repo already includes [media/sidechick.png](C:\Users\Admin\Desktop\Development\sidechicks\sidechick\media\sidechick.png).
 
 ### 4.4 Recommended manifest extras
 
-These are strongly recommended before publishing:
+Before publishing, it is good to have:
 
 - `repository`
 - `license`
-- a polished `README.md`
+- polished `README.md`
 - `CHANGELOG.md`
 
-## 5. Publish the Extension to the VS Code Marketplace
+## 5. Publish the Extension
 
-### 5.1 Install the publishing CLI
+### 5.1 Install `vsce`
 
 ```powershell
 npm install -g @vscode/vsce
@@ -200,13 +183,13 @@ You need:
 - a Personal Access Token with Marketplace `Manage` scope
 - a VS Code Marketplace publisher
 
-### 5.3 Log in with `vsce`
+### 5.3 Log in
 
 ```powershell
 vsce login your-publisher-id
 ```
 
-### 5.4 Package locally first
+### 5.4 Package first
 
 From the repo root:
 
@@ -214,7 +197,7 @@ From the repo root:
 vsce package
 ```
 
-This creates a `.vsix` file you can test locally.
+This creates a `.vsix` file you can install locally.
 
 ### 5.5 Publish
 
@@ -222,55 +205,46 @@ This creates a `.vsix` file you can test locally.
 vsce publish
 ```
 
-Or publish and bump version in one step:
+Or:
 
 ```powershell
 vsce publish patch
 ```
 
-### 5.6 Important packaging note
+### 5.6 Packaging note
 
-The repo is now configured so `vsce` runs:
+The repo is configured with:
 
-`npm run build:webview`
+`vscode:prepublish`
 
-before packaging or publishing.
-
-That keeps your webview bundle fresh automatically.
+so the webview auto-builds before packaging or publishing.
 
 ## 6. Final Release Checklist
 
-Before going live, confirm all of these:
-
-- Render backend is deployed
-- persistent disk is attached on Render
-- `ADMIN_TOKEN` is set on Render
-- `DB_PATH=/var/data/sidechick.db`
-- `UPLOADS_DIR=/var/data/uploads/problems`
-- at least one remote Dev problem is uploaded
-- `sidechick.backendBaseUrl` default points to Render
-- `publisher` is added to `package.json`
-- extension icon is changed to PNG for Marketplace
+- Render backend deployed
+- `ADMIN_TOKEN` set
+- `DB_PATH` set correctly
+- `UPLOADS_DIR` set correctly
+- at least one remote Dev problem uploaded
+- extension backend URL points to production
+- `publisher` is real
+- PNG Marketplace icon is set
 - `vsce package` succeeds
-- the produced VSIX installs correctly
+- VSIX installs correctly
 - `vsce publish` succeeds
 
 ## 7. What To Do Next
 
-Do these next, in order:
-
-1. Deploy the backend on Render
-2. Attach the persistent disk
-3. Set `ADMIN_TOKEN`, `DB_PATH`, and `UPLOADS_DIR`
+1. Deploy backend on Render
+2. Choose `persistent disk` or `free /tmp mode`
+3. Set env vars
 4. Upload your first real Dev problem zip
-5. Change the extension default backend URL to the Render URL
-6. Add your Marketplace `publisher`
-7. Replace the extension manifest icon with PNG
-8. Run `vsce package`
-9. Install the VSIX locally and test both `DSA` and `Dev`
-10. Publish with `vsce publish`
+5. Confirm `sidechick.backendBaseUrl` points to production
+6. Package with `vsce package`
+7. Test the VSIX locally
+8. Publish with `vsce publish`
 
-## Official References
+## References
 
 - [Render docs](https://render.com/docs/)
 - [Render environment variables](https://render.com/docs/environment-variables)

@@ -2,17 +2,23 @@
   "name": "sidechick",
   "displayName": "Sidechick",
   "description": "Your coding challenge sidekick inside VS Code",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.110.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "icon": "media/sidechick.ico",
+  "repository": {
+    "url": "https://github.com/herin7/sidechick"
+  },
+"activationEvents": [
+  "onCommand:sidechick.startChallenge",
+  "onCommand:sidechick.configureLeetCodeAuth",
+  "onCommand:sidechick.startMernBugMode"
+],
+"publisher": "HerinSoni",
+  "icon": "media/sidechick.png",
   "main": "./extension.js",
   "contributes": {
     "commands": [
