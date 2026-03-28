@@ -1,0 +1,16 @@
+{
+  "name": "sidechick-backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "upload:problem": "node scripts/upload-problem.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^5.1.0",
+    "multer": "^2.1.1"
+  }
+}

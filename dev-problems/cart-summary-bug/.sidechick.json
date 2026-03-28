@@ -1,0 +1,9 @@
+{
+  "id": "cart-summary-bug",
+  "title": "Cart Summary Bug",
+  "description": [
+    "A checkout summary is showing incorrect totals for carts with quantities greater than one.",
+    "Find the bug in the pricing logic and make the hidden tests pass."
+  ],
+  "tags": ["dev", "bugfix", "cart"]
+}

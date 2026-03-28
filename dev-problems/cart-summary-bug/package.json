@@ -1,0 +1,8 @@
+{
+  "name": "cart-summary-bug",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}

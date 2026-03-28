@@ -1,0 +1,9 @@
+{
+  "id": "session-timeout-bug",
+  "title": "Session Timeout Bug",
+  "description": [
+    "Users with expired sessions are still being treated as active.",
+    "Fix the timeout check and make the hidden tests pass."
+  ],
+  "tags": ["dev", "bugfix", "session"]
+}

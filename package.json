@@ -1,0 +1,78 @@
+{
+  "name": "sidechick",
+  "displayName": "Sidechick",
+  "description": "Your coding challenge sidekick inside VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "media/sidechick.ico",
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sidechick.helloWorld",
+        "title": "Hello World"
+      },
+      {
+        "command": "sidechick.startChallenge",
+        "title": "Start Challenge",
+        "category": "Sidechick",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "sidechick.configureLeetCodeAuth",
+        "title": "Configure LeetCode Auth",
+        "category": "Sidechick",
+        "icon": "$(key)"
+      },
+      {
+        "command": "sidechick.startMernBugMode",
+        "title": "Start MERN Bug Mode",
+        "category": "Sidechick",
+        "icon": "$(tools)"
+      }
+    ],
+    "configuration": {
+      "title": "Sidechick",
+      "properties": {
+        "sidechick.backendBaseUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:3001",
+          "description": "Base URL for the Sidechick backend service."
+        },
+        "sidechick.userHandle": {
+          "type": "string",
+          "default": "",
+          "description": "Optional handle used when reporting scores to the Sidechick backend."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "vscode-test",
+    "build:webview": "cd webview-ui && npm run build",
+    "vscode:prepublish": "npm run build:webview"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.110.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "axios": "^1.14.0",
+    "uuid": "^11.1.0"
+  }
+}

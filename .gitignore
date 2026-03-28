@@ -1,0 +1,9 @@
+node_modules
+.vscode-test/
+*.vsix
+.env
+backend/uploads/
+backend/*.db-shm
+backend/*.db-wal
+./dist
+dist
