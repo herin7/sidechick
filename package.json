@@ -44,7 +44,7 @@
       "properties": {
         "sidechick.backendBaseUrl": {
           "type": "string",
-          "default": "http://127.0.0.1:3001",
+          "default": "https://sidechick.onrender.com",
           "description": "Base URL for the Sidechick backend service."
         },
         "sidechick.userHandle": {
