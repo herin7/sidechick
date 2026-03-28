@@ -2,7 +2,7 @@
   "name": "sidechick",
   "displayName": "Sidechick",
   "description": "Your coding challenge sidekick inside VS Code",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "engines": {
     "vscode": "^1.110.0"
   },
