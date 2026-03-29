@@ -76,7 +76,11 @@ async function createChallenge({ apiClient, lcApi, sessionState, forcedMode }) {
   const mode = resolveMode(forcedMode);
 
   if (mode === 'dev') {
-    const mernChallenge = await createMernChallenge();
+    let remoteMern = null;
+    if (sessionState.isAuthenticated) {
+      remoteMern = await apiClient.fetchRandomProblem('mern');
+    }
+    const mernChallenge = await createMernChallenge(remoteMern);
     return {
       kind: 'mern',
       mode,

@@ -73,8 +73,11 @@ async function main() {
     body: form
   });
 
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch((err) => ({ message: `Failed to parse JSON response: ${err.message}`, text: response.text() }));
   if (!response.ok) {
+    console.error('--- UPLOAD FAILED ---');
+    console.error('Status:', response.status);
+    console.error('Response Body:', JSON.stringify(data, null, 2));
     throw new Error(data.error || `Upload failed with status ${response.status}`);
   }
 

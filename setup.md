@@ -27,8 +27,6 @@ The SideChick backend is an Express/PostgreSQL API located in the `/backend` fol
 5. Click **Deploy**.
 6. When your service is live, copy the assigned URL (e.g., `https://sidechick.onrender.com/`). You will use this in both the Extension Settings and the Web UI.
 
----
-
 ## 2. Frontend Deployment (Vercel)
 
 The `/leaderboard-ui` folder hosts the React/Vite dashboard.
