@@ -1,0 +1,1 @@
+{"name":"habit-check","scripts":{"test":"node --test"},"dependencies":{"express":"^4.18.2","better-sqlite3":"^9.0.0"}}
