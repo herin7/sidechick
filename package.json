@@ -2,9 +2,9 @@
   "name": "sidechick",
   "displayName": "Sidechick",
   "description": "Your coding challenge sidekick inside VS Code",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "engines": {
-    "vscode": "^1.110.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Other"
@@ -71,7 +71,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "@types/vscode": "^1.110.0",
+    "@types/vscode": "^1.100.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3"

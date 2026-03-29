@@ -4,8 +4,6 @@
 
 You hired an AI to write code, but what do you do while it thinks? SideChick turns AI generation time into skill-building time. Whenever your AI assistant starts executing a task, SideChick pops up a seamless, parallel challenge in your editor. Solve a quick LeetCode problem or debug a broken MERN app while you wait. Maximize your downtime and never lose your momentum.
 
->![LeetCode challenge panel](./media/land1-lc.png)
->![Dev mode challenge](./media/land2-dev.png)
 ---
 
 ## The idea
@@ -28,7 +26,6 @@ Pick a LeetCode problem, solve it in VS Code, submit for a real verdict.
 - Submits using your `LEETCODE_SESSION` and `csrftoken`
 - Polls for the verdict and shows a pass or fail overlay
 
->![LeetCode challenge panel](./media/land1-lc.png)
 
 ### Dev mode
 
@@ -40,7 +37,6 @@ Open a broken project in a fresh VS Code window and fix it before the AI does.
 - Hides the test folder by default so you cannot peek
 - Evaluates with `npm test`
 
->![Dev mode challenge](./media/land2-dev.png)
 
 ---
 
@@ -86,7 +82,6 @@ Pick a LeetCode problem, solve it in VS Code, submit for a real verdict.
 - Submits using your `LEETCODE_SESSION` and `csrftoken`
 - Polls for the verdict and shows a pass or fail overlay
 
->![LeetCode challenge panel](./media/land1-lc.png)
 
 ### Dev mode
 
@@ -98,7 +93,6 @@ Open a broken project in a fresh VS Code window and fix it before the AI does.
 - Hides the test folder by default so you cannot peek
 - Evaluates with `npm test`
 
->![Dev mode challenge](./media/land2-dev.png)
 
 ---
 

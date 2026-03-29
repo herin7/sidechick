@@ -239,6 +239,6 @@ function activate(context) {
   registerAutoPromptWatcher(context, statusBarItem);
 }
 
-function deactivate() {}
+function deactivate() { }
 
 module.exports = { activate, deactivate };
