@@ -17,7 +17,6 @@ media/node_modules/**
 .gitignore
 .vscode-test.*
 eslint.config.mjs
-dev-problems
 backend/problems
 SUPER_CONTEXT.txt
 leaderboard-ui

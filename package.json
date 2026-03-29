@@ -2,12 +2,25 @@
   "name": "sidechick",
   "displayName": "Sidechick",
   "description": "Your coding challenge sidekick inside VS Code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "engines": {
     "vscode": "^1.100.0"
   },
+  "galleryBanner": {
+  "color": "#0f172a",
+  "theme": "dark"
+},
+"keywords": [
+  "ai",
+  "copilot",
+  "productivity",
+  "leetcode",
+  "coding",
+  "developer tools"
+],
   "categories": [
-    "Other"
+    "Other",
+    "Productivity"
   ],
   "repository": {
     "url": "https://github.com/herin7/sidechick"

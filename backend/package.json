@@ -9,9 +9,14 @@
     "db:init": "node scripts/init-db.js"
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "cors": "^2.8.6",
     "express": "^5.1.0",
+    "form-data": "^4.0.5",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.20.0"
+    "multer": "^2.1.1",
+    "node-fetch": "^2.7.0",
+    "pg": "^8.20.0",
+    "unzipper": "^0.12.3"
   }
 }
