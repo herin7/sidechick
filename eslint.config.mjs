@@ -14,6 +14,8 @@ export default [
     {
         ignores: [
             "dist/**",
+            "media/dist/**",
+            "leaderboard-ui/**",
             "node_modules/**",
             "backend/node_modules/**",
             "webview-ui/node_modules/**",

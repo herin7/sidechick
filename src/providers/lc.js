@@ -1,224 +1,334 @@
-const axios = require('axios');
+const { Script, createContext } = require('vm');
+const { isDeepStrictEqual } = require('util');
 
-const GRAPHQL_URL = 'https://leetcode.com/graphql';
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
-const HEADERS = {
-  'Content-Type': 'application/json',
-  Referer: 'https://leetcode.com/problemset/',
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  Accept: 'application/json',
-  'Accept-Language': 'en-US,en;q=0.9',
-  Origin: 'https://leetcode.com'
-};
-async function fetchProblemList(difficulty = 'MEDIUM', skip = 0, limit = 50) {
-  const query = `
-    query problemsetQuestionList(
-      $categorySlug: String
-      $limit: Int
-      $skip: Int
-      $filters: QuestionListFilterInput
-    ) {
-      problemsetQuestionList: questionList(
-        categorySlug: $categorySlug
-        limit: $limit
-        skip: $skip
-        filters: $filters
-      ) {
-        total: totalNum
-        questions: data {
-          questionFrontendId
-          titleSlug
-          title
-          difficulty
-          acRate
-          isPaidOnly
-        }
-      }
-    }
+function buildContentHtml(problem) {
+  const examplesHtml = problem.examples.map((example, index) => `
+    <div class="example-block">
+      <div class="example-title">Example ${index + 1}</div>
+      <p><strong>Input:</strong> <code>${escapeHtml(example.inputLabel)}</code></p>
+      <p><strong>Output:</strong> <code>${escapeHtml(example.outputLabel)}</code></p>
+      <p>${escapeHtml(example.explanation)}</p>
+    </div>
+  `).join('');
+
+  const constraintsHtml = problem.constraints
+    .map((constraint) => `<li>${escapeHtml(constraint)}</li>`)
+    .join('');
+
+  return `
+    <p>${escapeHtml(problem.prompt)}</p>
+    ${examplesHtml}
+    <h3>Constraints</h3>
+    <ul>${constraintsHtml}</ul>
   `;
-
-  const { data } = await axios.post(
-    GRAPHQL_URL,
-    {
-      query,
-      variables: {
-        categorySlug: 'all-code-essentials',
-        skip,
-        limit,
-        filters: { difficulty }
-      }
-    },
-    { headers: HEADERS, timeout: 10000 }
-  );
-
-  return data.data.problemsetQuestionList;
 }
 
-async function fetchProblemContent(titleSlug) {
-  const query = `
-    query questionContent($titleSlug: String!) {
-      question(titleSlug: $titleSlug) {
-        questionId
-        questionFrontendId
-        title
-        titleSlug
-        difficulty
-        content
-        acRate
-        codeSnippets {
-          lang
-          langSlug
-          code
-        }
-        topicTags {
-          name
-          slug
-        }
-      }
-    }
-  `;
-
-  const { data } = await axios.post(
-    GRAPHQL_URL,
-    { query, variables: { titleSlug } },
-    { headers: HEADERS, timeout: 10000 }
-  );
-
-  return data.data.question;
+function clone(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
-function buildStarterCodeMap(codeSnippets = []) {
-  return codeSnippets.reduce((map, snippet) => {
-    if (snippet.langSlug && typeof snippet.code === 'string') {
-      map[snippet.langSlug] = snippet.code;
-    }
-    return map;
-  }, {});
-}
-
-async function fetchRandomProblem(difficulty = 'MEDIUM') {
-  const listMeta = await fetchProblemList(difficulty, 0, 1);
-  const total = listMeta.total;
-  const maxSkip = Math.max(0, total - 50);
-  const skip = Math.floor(Math.random() * maxSkip);
-  const page = await fetchProblemList(difficulty, skip, 50);
-  const candidates = page.questions.filter((question) => !question.isPaidOnly);
-
-  if (candidates.length === 0) {
-    throw new Error('No free problems found in this batch. Please retry.');
-  }
-
-  const picked = candidates[Math.floor(Math.random() * candidates.length)];
-  const full = await fetchProblemContent(picked.titleSlug);
-
-  if (!full || !full.content) {
-    throw new Error(`Problem "${picked.titleSlug}" has no content and may be premium-only.`);
-  }
-
-  return {
+const LOCAL_DSA_PROBLEMS = [
+  {
+    id: 'two-sum-shift',
+    questionId: 'SC-101',
     type: 'lc',
-    questionId: full.questionFrontendId,
-    title: full.title,
-    titleSlug: full.titleSlug,
-    difficulty: full.difficulty,
-    content: full.content,
-    acRate: Math.round(full.acRate * 10) / 10,
-    tags: (full.topicTags ?? []).map((tag) => tag.name),
-    starterCode: buildStarterCodeMap(full.codeSnippets)
-  };
-}
-
-const LANG_MAP = {
-  javascript: 'javascript',
-  typescript: 'typescript',
-  python: 'python3',
-  java: 'java',
-  cpp: 'cpp',
-  c: 'c',
-  csharp: 'csharp',
-  ruby: 'ruby',
-  swift: 'swift',
-  golang: 'golang',
-  scala: 'scala',
-  kotlin: 'kotlin',
-  rust: 'rust',
-  php: 'php'
-};
-
-function authHeaders(creds, referer) {
-  return {
-    ...HEADERS,
-    Cookie: `LEETCODE_SESSION=${creds.session}; csrftoken=${creds.csrfToken}`,
-    'X-CSRFToken': creds.csrfToken,
-    Referer: referer,
-    'x-requested-with': 'XMLHttpRequest'
-  };
-}
-
-async function submitCode(creds, { titleSlug, questionId, code, language }) {
-  const langSlug = LANG_MAP[language] ?? 'javascript';
-  const url = `https://leetcode.com/problems/${titleSlug}/submit/`;
-
-  const { data } = await axios.post(
-    url,
-    {
-      lang: langSlug,
-      question_id: questionId,
-      typed_code: code
+    title: 'Two Sum Shift',
+    titleSlug: 'two-sum-shift',
+    difficulty: 'EASY',
+    tags: ['array', 'hash map'],
+    prompt:
+      'Return the indices of the two numbers whose sum equals the target. Exactly one valid answer exists, and you may not reuse the same element twice.',
+    constraints: [
+      '2 <= nums.length <= 10^4',
+      '-10^9 <= nums[i] <= 10^9',
+      '-10^9 <= target <= 10^9'
+    ],
+    examples: [
+      {
+        inputLabel: 'nums = [2,7,11,15], target = 9',
+        outputLabel: '[0,1]',
+        explanation: 'nums[0] + nums[1] = 9.'
+      },
+      {
+        inputLabel: 'nums = [3,2,4], target = 6',
+        outputLabel: '[1,2]',
+        explanation: 'The pair at indices 1 and 2 adds up to 6.'
+      }
+    ],
+    starterCode: {
+      javascript: `function twoSum(nums, target) {\n  // Return an array with the two matching indices.\n}\n\nmodule.exports = twoSum;\n`
     },
-    {
-      headers: authHeaders(creds, `https://leetcode.com/problems/${titleSlug}/`),
-      timeout: 15000
-    }
-  );
+    entrypoint: 'twoSum',
+    publicTests: [
+      { args: [[2, 7, 11, 15], 9], expected: [0, 1] },
+      { args: [[3, 2, 4], 6], expected: [1, 2] }
+    ],
+    hiddenTests: [
+      { args: [[3, 3], 6], expected: [0, 1] },
+      { args: [[1, 5, 3, 7], 8], expected: [0, 3] }
+    ]
+  },
+  {
+    id: 'balanced-compiler-brackets',
+    questionId: 'SC-202',
+    type: 'cf',
+    title: 'Balanced Compiler Brackets',
+    titleSlug: 'balanced-compiler-brackets',
+    difficulty: 'MEDIUM',
+    tags: ['stack', 'strings'],
+    prompt:
+      'Given a string containing only (), [], and {}, return true if every opening bracket is closed in the correct order. Return false otherwise.',
+    constraints: [
+      '1 <= sequence.length <= 10^4',
+      'The input string contains only bracket characters.'
+    ],
+    examples: [
+      {
+        inputLabel: 'sequence = "()[]{}"',
+        outputLabel: 'true',
+        explanation: 'Each bracket pair closes in the right order.'
+      },
+      {
+        inputLabel: 'sequence = "([)]"',
+        outputLabel: 'false',
+        explanation: 'The middle pair crosses over and breaks the stack order.'
+      }
+    ],
+    starterCode: {
+      javascript: `function isBalanced(sequence) {\n  // Return true when the bracket sequence is valid.\n}\n\nmodule.exports = isBalanced;\n`
+    },
+    entrypoint: 'isBalanced',
+    publicTests: [
+      { args: ['()[]{}'], expected: true },
+      { args: ['([)]'], expected: false }
+    ],
+    hiddenTests: [
+      { args: ['{[]}'], expected: true },
+      { args: ['((('], expected: false }
+    ]
+  },
+  {
+    id: 'merge-busy-intervals',
+    questionId: 'SC-303',
+    type: 'lc',
+    title: 'Merge Busy Intervals',
+    titleSlug: 'merge-busy-intervals',
+    difficulty: 'MEDIUM',
+    tags: ['sorting', 'intervals'],
+    prompt:
+      'Merge overlapping intervals and return the condensed list sorted by start time.',
+    constraints: [
+      '1 <= intervals.length <= 10^4',
+      'Each interval has exactly two integers [start, end].'
+    ],
+    examples: [
+      {
+        inputLabel: 'intervals = [[1,3],[2,6],[8,10],[15,18]]',
+        outputLabel: '[[1,6],[8,10],[15,18]]',
+        explanation: 'The first two intervals overlap and should be merged.'
+      },
+      {
+        inputLabel: 'intervals = [[1,4],[4,5]]',
+        outputLabel: '[[1,5]]',
+        explanation: 'Touching intervals are considered overlapping here.'
+      }
+    ],
+    starterCode: {
+      javascript: `function mergeIntervals(intervals) {\n  // Return a new array of merged intervals.\n}\n\nmodule.exports = mergeIntervals;\n`
+    },
+    entrypoint: 'mergeIntervals',
+    publicTests: [
+      {
+        args: [[[1, 3], [2, 6], [8, 10], [15, 18]]],
+        expected: [[1, 6], [8, 10], [15, 18]]
+      },
+      {
+        args: [[[1, 4], [4, 5]]],
+        expected: [[1, 5]]
+      }
+    ],
+    hiddenTests: [
+      {
+        args: [[[5, 7], [1, 2], [2, 4]]],
+        expected: [[1, 4], [5, 7]]
+      }
+    ]
+  }
+];
 
-  if (!data?.submission_id) {
-    const errorMessage = data?.error || data?.detail;
-    throw new Error(
-      errorMessage || 'LeetCode did not return a submission ID. Check your credentials.'
-    );
+function normalizeProblem(problem) {
+  return {
+    ...problem,
+    source: 'local',
+    content: buildContentHtml(problem),
+    supportedLanguages: ['javascript']
+  };
+}
+
+function normalizeRemoteProblem(problem) {
+  if (!problem || typeof problem !== 'object') {
+    return null;
   }
 
-  return String(data.submission_id);
+  const metadata = problem.metadata && typeof problem.metadata === 'object'
+    ? problem.metadata
+    : null;
+
+  if (
+    !metadata ||
+    typeof metadata.contentHtml !== 'string' ||
+    typeof metadata.entrypoint !== 'string' ||
+    !metadata.starterCode ||
+    !Array.isArray(metadata.publicTests)
+  ) {
+    return null;
+  }
+
+  return {
+    id: String(problem.slug || problem.id),
+    questionId: String(problem.id),
+    type: String(problem.type || 'lc'),
+    title: String(problem.title || 'SideChick Challenge'),
+    titleSlug: String(problem.slug || problem.id),
+    difficulty: String(problem.difficulty || 'MEDIUM').toUpperCase(),
+    tags: Array.isArray(metadata.tags) ? metadata.tags : [],
+    content: metadata.contentHtml,
+    source: 'cloud',
+    starterCode: metadata.starterCode,
+    supportedLanguages: ['javascript'],
+    entrypoint: metadata.entrypoint,
+    publicTests: metadata.publicTests,
+    hiddenTests: Array.isArray(metadata.hiddenTests) ? metadata.hiddenTests : []
+  };
 }
 
-async function pollVerdict(creds, submissionId, maxAttempts = 20) {
-  const url = `https://leetcode.com/submissions/detail/${submissionId}/check/`;
+async function fetchRandomProblem(preferredType = 'lc') {
+  const pool = LOCAL_DSA_PROBLEMS.filter((problem) => problem.type === preferredType);
+  const source = pool.length > 0 ? pool : LOCAL_DSA_PROBLEMS;
+  return normalizeProblem(source[Math.floor(Math.random() * source.length)]);
+}
 
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+function loadSolution(code, entrypoint) {
+  const logs = [];
+  const sandbox = {
+    module: { exports: undefined },
+    exports: {},
+    console: {
+      log: (...args) => {
+        logs.push(args.map((value) => {
+          if (typeof value === 'string') {
+            return value;
+          }
 
-    const { data } = await axios.get(url, {
-      headers: authHeaders(creds, `https://leetcode.com/submissions/detail/${submissionId}/`),
-      timeout: 10000
+          try {
+            return JSON.stringify(value);
+          } catch {
+            return String(value);
+          }
+        }).join(' '));
+      }
+    }
+  };
+
+  const context = createContext(sandbox);
+  const script = new Script(
+    `${code}\n;if (typeof module.exports !== 'function' && typeof ${entrypoint} !== 'undefined') { module.exports = ${entrypoint}; }`,
+    { filename: 'sidechick-dsa.js' }
+  );
+  script.runInContext(context, { timeout: 1000 });
+
+  const solution = sandbox.module.exports ?? sandbox.exports;
+  if (typeof solution !== 'function') {
+    throw new Error(`Export a function named "${entrypoint}" using module.exports.`);
+  }
+
+  return { solution, logs };
+}
+
+async function executeTests(problem, code, { publicOnly }) {
+  const tests = publicOnly
+    ? problem.publicTests
+    : [...problem.publicTests, ...problem.hiddenTests];
+
+  const { solution, logs } = loadSolution(code, problem.entrypoint);
+  const results = [];
+
+  for (const [index, test] of tests.entries()) {
+    const actual = await Promise.resolve(solution(...clone(test.args)));
+    const passed = isDeepStrictEqual(actual, test.expected);
+
+    results.push({
+      index: index + 1,
+      args: test.args,
+      expected: test.expected,
+      actual,
+      passed
     });
 
-    const status = data.status_msg ?? data.state ?? 'Pending';
-    if (
-      status === 'Pending' ||
-      data.state === 'PENDING' ||
-      data.state === 'STARTED'
-    ) {
-      continue;
+    if (!passed && !publicOnly) {
+      break;
     }
-
-    return {
-      submissionId,
-      status: data.status_msg ?? 'Unknown',
-      statusCode: data.status_code ?? 0,
-      runtime: data.status_runtime ?? 'N/A',
-      memory: data.status_memory ?? 'N/A',
-      totalCorrect: data.total_correct ?? 0,
-      totalTestcases: data.total_testcases ?? 0,
-      lastTestcase: data.last_testcase,
-      expectedOutput: data.expected_output,
-      codeOutput: data.code_output
-    };
   }
 
-  throw new Error(`Verdict polling timed out after ${maxAttempts * 2}s. Check the LeetCode website.`);
+  return { logs, results };
 }
 
-module.exports = { fetchRandomProblem, submitCode, pollVerdict, LANG_MAP };
+function buildRunOutput(problem, execution) {
+  const lines = [`Running sample checks for ${problem.title}:`, ''];
+
+  execution.results.forEach((result) => {
+    lines.push(`Sample ${result.index}: ${result.passed ? 'PASS' : 'FAIL'}`);
+    lines.push(`  input: ${JSON.stringify(result.args)}`);
+    lines.push(`  expected: ${JSON.stringify(result.expected)}`);
+    lines.push(`  actual: ${JSON.stringify(result.actual)}`);
+  });
+
+  if (execution.logs.length > 0) {
+    lines.push('', 'console.log output:');
+    lines.push(...execution.logs.map((line) => `  ${line}`));
+  }
+
+  return lines.join('\n');
+}
+
+function buildVerdict(execution) {
+  const failing = execution.results.find((result) => !result.passed);
+  const accepted = !failing;
+
+  return {
+    status: accepted ? 'Accepted' : 'Failed',
+    statusCode: accepted ? 10 : -1,
+    runtime: 'Local evaluator',
+    memory: 'N/A',
+    output: accepted
+      ? 'All SideChick test cases passed.'
+      : `Failed test ${failing.index}: expected ${JSON.stringify(failing.expected)} but received ${JSON.stringify(failing.actual)}.`,
+    error: accepted ? undefined : 'Check your edge cases and try again.',
+    totalCorrect: execution.results.filter((result) => result.passed).length,
+    totalTestcases: execution.results.length
+  };
+}
+
+async function evaluateSolution(problem, code, { publicOnly = false } = {}) {
+  const execution = await executeTests(problem, code, { publicOnly });
+
+  return {
+    output: buildRunOutput(problem, execution),
+    verdict: buildVerdict(execution)
+  };
+}
+
+module.exports = {
+  evaluateSolution,
+  fetchRandomProblem,
+  normalizeRemoteProblem
+};

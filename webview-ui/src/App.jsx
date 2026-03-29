@@ -1,99 +1,160 @@
-import React, { useEffect, useState } from 'react';
-import ProblemPane from './components/ProblemPane.jsx';
+import React, { useEffect, useMemo, useState } from 'react';
 import EditorPane from './components/EditorPane.jsx';
+import MernPane from './components/MernPane.jsx';
+import ProblemPane from './components/ProblemPane.jsx';
 import VerdictOverlay from './components/VerdictOverlay.jsx';
-import { sendMessage, onMessage } from './bridge.js';
-
-const difficultyToBadge = {
-  EASY: 'badge--easy',
-  MEDIUM: 'badge--medium',
-  HARD: 'badge--hard',
-  MERN: 'badge--mern'
-};
+import { onMessage, sendMessage } from './bridge.js';
 
 const sidechickIconSrc =
   document.querySelector('meta[name="sidechick-icon"]')?.getAttribute('content') ?? '';
 
+const emptySession = {
+  isAnonymous: false,
+  isAuthenticated: false,
+  user: null,
+  streak: 0,
+  solved: 0,
+  source: 'manual'
+};
+
+const fireIcon = String.fromCodePoint(0x1F525);
+const chickenIcon = String.fromCodePoint(0x1F423);
+
 export default function App() {
-  const [problem, setProblem] = useState(null);
-  const [fetchError, setFetchError] = useState(null);
-  const [authConfigured, setAuthConfigured] = useState(false);
-  const [authError, setAuthError] = useState(null);
+  const [challenge, setChallenge] = useState(null);
+  const [sessionState, setSessionState] = useState(emptySession);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [busyMessage, setBusyMessage] = useState('');
   const [challengeStartedAt, setChallengeStartedAt] = useState(null);
 
   useEffect(() => {
     sendMessage({ type: 'ready' });
 
-    const cleanup = onMessage((data) => {
-      if (data?.type === 'problem') {
-        setProblem(data.data);
-        setFetchError(null);
+    return onMessage((message) => {
+      if (message?.type === 'hydrate') {
+        setChallenge(message.data?.challenge || null);
+        setSessionState({ ...emptySession, ...(message.data?.sessionState || {}) });
+        setChallengeStartedAt(message.data?.challenge ? Date.now() : null);
+        return;
+      }
+
+      if (message?.type === 'challenge') {
+        setChallenge(message.data || null);
+        setErrorMessage('');
         setChallengeStartedAt(Date.now());
-      } else if (data?.type === 'error') {
-        setFetchError(data.message);
-        setProblem(null);
-      } else if (data?.type === 'authStatus') {
-        setAuthConfigured(Boolean(data.isConfigured));
-        setAuthError(data.error ?? null);
+        return;
+      }
+
+      if (message?.type === 'sessionState') {
+        setSessionState({ ...emptySession, ...(message.data || {}) });
+        return;
+      }
+
+      if (message?.type === 'error') {
+        setErrorMessage(message.data?.message || 'Something went wrong.');
+        return;
+      }
+
+      if (message?.type === 'busy') {
+        setBusyMessage(message.data?.message || '');
       }
     });
-
-    return cleanup;
   }, []);
 
-  const difficultyClass = difficultyToBadge[problem?.difficulty] || 'badge--medium';
+  const statusPill = useMemo(() => {
+    if (sessionState.isAuthenticated) {
+      return `Streak ${sessionState.streak}`;
+    }
+
+    if (sessionState.isAnonymous) {
+      return 'Anonymous Mode';
+    }
+
+    return 'GitHub Optional';
+  }, [sessionState]);
+
+  const triggerLabel = useMemo(() => {
+    const src = sessionState.source || 'manual';
+    if (src === 'ai-bulk-insert') return 'AI Bulk Insert';
+    if (src === 'manual-dev') return 'Manual (Dev)';
+    return src.charAt(0).toUpperCase() + src.slice(1);
+  }, [sessionState.source]);
 
   return (
-    <div className="app-container">
+    <div className="app-shell">
       <header className="app-header">
-        <div className="logo">
+        <div className="brand">
           {sidechickIconSrc ? (
-            <img className="logo-icon-image" src={sidechickIconSrc} alt="Sidechick" />
+            <img className="brand-icon" src={sidechickIconSrc} alt="SideChick" />
           ) : (
-            <div className="logo-icon-fallback" aria-hidden="true" />
+            <div className="brand-fallback" aria-hidden="true" />
           )}
+          <div>
+            <div className="brand-eyebrow">{chickenIcon} Bonus Challenge</div>
+            <div className="brand-title">Your AI just did heavy lifting — race it for a streak point!</div>
+          </div>
         </div>
 
-        <div className="header-meta">
-          {problem ? (
-            <>
-              <span className={`badge ${difficultyClass}`}>{problem.difficulty}</span>
-              <span className="problem-title">
-                {problem.questionId}. {problem.title}
-              </span>
-            </>
-          ) : fetchError ? (
-            <span className="badge badge--hard">Error</span>
+        <div className="header-right">
+          <div className={`status-pill ${sessionState.isAuthenticated ? 'status-pill--hot' : ''}`}>
+            {sessionState.isAuthenticated ? `${fireIcon} ` : ''}
+            {statusPill}
+          </div>
+          {sessionState.isAuthenticated ? (
+            <div className="user-pill">@{sessionState.user?.handle || 'github-user'}</div>
           ) : (
-            <span className="header-loading-pill">
-              <span className="spinner" />
-              Fetching problem...
-            </span>
+            <div className="header-actions">
+              {!sessionState.isAnonymous ? (
+                <button
+                  type="button"
+                  className="pill-button"
+                  onClick={() => sendMessage({ type: 'loginWithGithub' })}
+                >
+                  Log in with GitHub
+                </button>
+              ) : null}
+              {!sessionState.isAnonymous ? (
+                <button
+                  type="button"
+                  className="pill-button pill-button--ghost"
+                  onClick={() => sendMessage({ type: 'continueAnonymous' })}
+                >
+                  Continue Anonymous
+                </button>
+              ) : null}
+            </div>
           )}
-        </div>
-
-        <div className="header-actions">
-          <button
-            className={`auth-pill ${authConfigured ? 'auth-pill--configured' : ''}`}
-            onClick={() => sendMessage({ type: 'configureAuth' })}
-            type="button"
-          >
-            {authConfigured ? 'Auth Ready' : 'Set Auth'}
-          </button>
         </div>
       </header>
 
-      {authError ? <div className="auth-banner">{authError}</div> : null}
+      <div className="top-strip">
+        <span className="strip-label">Trigger</span>
+        <span className="strip-value">{triggerLabel}</span>
+        <span className="strip-label">Mode</span>
+        <span className="strip-value">{challenge?.type === 'mern' ? 'Dev' : 'DSA'}</span>
+        {busyMessage ? (
+          <>
+            <span className="strip-label">Status</span>
+            <span className="strip-value">{busyMessage}</span>
+          </>
+        ) : null}
+      </div>
 
       <main className="app-main">
-        <ProblemPane problem={problem} error={fetchError} />
-        <EditorPane
-          problem={problem}
-          challengeStartedAt={challengeStartedAt}
-          onRun={(code) => sendMessage({ type: 'run', code })}
-          onSubmit={(payload) => sendMessage({ type: 'submit', ...payload })}
-          onMessage={onMessage}
-        />
+        <ProblemPane challenge={challenge} error={errorMessage} />
+        {challenge?.type === 'mern' ? (
+          <MernPane
+            challenge={challenge}
+            onMessage={onMessage}
+            challengeStartedAt={challengeStartedAt}
+          />
+        ) : (
+          <EditorPane
+            challenge={challenge}
+            onMessage={onMessage}
+            challengeStartedAt={challengeStartedAt}
+          />
+        )}
       </main>
 
       <VerdictOverlay onMessage={onMessage} />

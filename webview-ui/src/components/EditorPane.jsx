@@ -1,137 +1,139 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
+import { sendMessage, state } from '../bridge.js';
 
 const EMPTY_EDITOR = '';
 
-function resolveStarterCode(problem, language) {
-  if (!problem?.starterCode) {
-    return EMPTY_EDITOR;
-  }
-
-  const mappedLanguage =
-    language === 'python'
-      ? 'python3'
-      : language;
-
-  return problem.starterCode[mappedLanguage] ?? EMPTY_EDITOR;
+function getChallengeStateKey(challenge, langSlug) {
+  return challenge ? `code:${challenge.id || challenge.questionId}:${langSlug}` : '';
 }
 
-export default function EditorPane({
-  problem,
-  challengeStartedAt,
-  onRun,
-  onSubmit,
-  onMessage
-}) {
+export default function EditorPane({ challenge, challengeStartedAt, onMessage }) {
   const editorRef = useRef(null);
-  const [output, setOutput] = useState('');
-  const [isRunning, setIsRunning] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [language, setLanguage] = useState('javascript');
+  const [currentLang, setCurrentLang] = useState('javascript');
   const [editorValue, setEditorValue] = useState(EMPTY_EDITOR);
+  const [output, setOutput] = useState('');
+  const [isBusy, setIsBusy] = useState(false);
 
+  // Default selection if available
   useEffect(() => {
-    const cleanup = onMessage((data) => {
-      if (data?.type === 'result') {
-        setOutput(data.output);
-        setIsRunning(false);
-      } else if (data?.type === 'submitting') {
-        setIsSubmitting(true);
-      } else if (data?.type === 'verdict') {
-        setIsSubmitting(false);
+    if (challenge?.supportedLanguages?.length) {
+      if (!challenge.supportedLanguages.some(l => l.id === currentLang)) {
+        setCurrentLang(challenge.supportedLanguages[0].id);
       }
-    });
+    }
+  }, [challenge]);
 
-    return cleanup;
-  }, [onMessage]);
+  const challengeStateKey = useMemo(() => getChallengeStateKey(challenge, currentLang), [challenge, currentLang]);
 
   useEffect(() => {
-    const nextValue = resolveStarterCode(problem, language);
+    const savedState = state.get();
+    const restored = challengeStateKey ? savedState?.[challengeStateKey] : '';
+    const nextValue = restored || challenge?.starterCode?.[currentLang] || EMPTY_EDITOR;
+
     setEditorValue(nextValue);
     if (editorRef.current) {
       editorRef.current.setValue(nextValue);
+      // Change monaco model language if needed
+      const monaco = window.monaco;
+      if (monaco && editorRef.current.getModel()) {
+        monaco.editor.setModelLanguage(editorRef.current.getModel(), currentLang === 'python3' ? 'python' : currentLang);
+      }
     }
-  }, [problem?.questionId, language]);
+  }, [challengeStateKey, challenge?.starterCode, currentLang]);
 
-  const getCode = () => editorRef.current?.getValue() ?? '';
+  useEffect(() => onMessage((message) => {
+    if (message?.type === 'executionOutput') {
+      setOutput(message.data?.output || '');
+    }
 
-  const getElapsedSeconds = () => {
+    if (message?.type === 'busy') {
+      setIsBusy(Boolean(message.data?.message));
+    }
+
+    if (message?.type === 'challenge') {
+      setOutput('');
+    }
+  }), [onMessage]);
+
+  function persistEditorValue(nextValue) {
+    setEditorValue(nextValue);
+    if (!challengeStateKey) {
+      return;
+    }
+
+    const snapshot = state.get();
+    state.set({
+      ...snapshot,
+      [challengeStateKey]: nextValue
+    });
+  }
+
+  function getElapsedSeconds() {
     if (!challengeStartedAt) {
       return 0;
     }
 
     return Math.max(0, Math.round((Date.now() - challengeStartedAt) / 1000));
-  };
-
-  const handleRun = () => {
-    setIsRunning(true);
-    setOutput('Running...');
-    onRun(getCode());
-  };
-
-  const handleSubmit = () => {
-    if (!problem) {
-      return;
-    }
-
-    setIsSubmitting(true);
-    onSubmit({
-      code: getCode(),
-      language,
-      questionId: problem.questionId,
-      timerSeconds: getElapsedSeconds()
-    });
-  };
+  }
 
   return (
-    <section className="editor-pane">
-      <div className="editor-toolbar">
-        <select
-          className="lang-select"
-          value={language}
-          onChange={(event) => setLanguage(event.target.value)}
-        >
-          <option value="javascript">JavaScript</option>
-          <option value="python">Python</option>
-          <option value="typescript">TypeScript</option>
-          <option value="java">Java</option>
-          <option value="cpp">C++</option>
-        </select>
-
-        <div className="toolbar-actions">
+    <section className="workspace-pane">
+      <div className="workspace-toolbar">
+        <div>
+          <div className="workspace-title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>DSA Engine</span>
+            {challenge?.supportedLanguages?.length > 0 && (
+              <select className="lang-select" value={currentLang} onChange={e => setCurrentLang(e.target.value)}>
+                {challenge.supportedLanguages.map(l => (
+                  <option key={l.id} value={l.id}>{l.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="workspace-subtitle">All DSA execution stays inside the extension host, or uses LeetCode directly.</div>
+        </div>
+        <div className="workspace-actions">
+          {isBusy ? (
+            <button type="button" className="action-button action-button--ghost" onClick={() => sendMessage({ type: 'cancelRun' })}>
+              Stop Running
+            </button>
+          ) : (
+            <button type="button" className="action-button action-button--ghost" onClick={() => setOutput('')}>
+              Clear Output
+            </button>
+          )}
           <button
-            className="btn btn--secondary"
-            onClick={() => setOutput('')}
-            title="Clear output"
             type="button"
+            className="action-button action-button--ghost"
+            onClick={() => sendMessage({ type: 'skipChallenge' })}
+            disabled={!challenge || isBusy}
           >
-            Clear
+            Skip Challenge
           </button>
           <button
-            className="btn btn--secondary"
-            onClick={handleRun}
-            disabled={isRunning || isSubmitting}
-            title="Run code"
             type="button"
+            className="action-button action-button--ghost"
+            onClick={() => sendMessage({ type: 'runDsa', code: editorRef.current?.getValue() || '', langSlug: currentLang, timerSeconds: getElapsedSeconds() })}
+            disabled={!challenge || isBusy}
           >
-            {isRunning ? 'Running...' : 'Run'}
+            Run Samples
           </button>
           <button
-            className="btn btn--primary"
-            onClick={handleSubmit}
-            disabled={!problem || isSubmitting}
-            title="Submit challenge"
             type="button"
+            className="action-button"
+            onClick={() => sendMessage({ type: 'submitDsa', code: editorRef.current?.getValue() || '', langSlug: currentLang, timerSeconds: getElapsedSeconds() })}
+            disabled={!challenge || isBusy}
           >
-            {isSubmitting ? 'Submitting...' : 'Submit'}
+            Submit
           </button>
         </div>
       </div>
 
-      <div className="monaco-wrapper">
+      <div className="editor-frame">
         <Editor
           height="100%"
-          language={language}
+          language={currentLang === 'python3' ? 'python' : currentLang}
           value={editorValue}
           theme="vs-dark"
           onMount={(editor) => {
@@ -140,34 +142,21 @@ export default function EditorPane({
           }}
           options={{
             fontSize: 14,
-            fontFamily: "'Azeret Mono', monospace",
-            fontLigatures: false,
+            fontFamily: '"Google Sans Code", monospace',
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             wordWrap: 'on',
             tabSize: 2,
-            lineNumbers: 'on',
-            renderLineHighlight: 'line',
-            cursorBlinking: 'smooth',
             smoothScrolling: true,
             padding: { top: 16, bottom: 16 }
           }}
-          onChange={(value) => {
-            setEditorValue(value ?? EMPTY_EDITOR);
-          }}
+          onChange={(value) => persistEditorValue(value ?? EMPTY_EDITOR)}
         />
       </div>
 
-      <div className={`output-panel ${output ? 'output-panel--visible' : ''}`}>
-        <div className="output-header">
-          <span>Output</span>
-          {output ? (
-            <button className="output-close" onClick={() => setOutput('')} type="button">
-              x
-            </button>
-          ) : null}
-        </div>
-        <pre className="output-content">{output || 'Run or submit to see output here.'}</pre>
+      <div className="console-panel">
+        <div className="console-header">Extension Host Output</div>
+        <pre className="console-body">{output || 'Run the sample tests to see SideChick feedback here.'}</pre>
       </div>
     </section>
   );

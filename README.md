@@ -1,125 +1,118 @@
 # SideChick
 
-**Parallel execution for your brain.**
+SideChick is a VS Code extension that interrupts AI-assisted coding with a challenge gate. Before Copilot, Cursor, or Claude Code can keep helping, the developer has to clear a DSA problem or fix a broken MERN app.
 
-You hired an AI to write code, but what do you do while it thinks? SideChick turns AI generation time into skill-building time. Whenever your AI assistant starts executing a task, SideChick pops up a seamless, parallel challenge in your editor. Solve a quick LeetCode problem or debug a broken MERN app while you wait. Maximize your downtime and never lose your momentum.
+## What It Does
 
----
+- Intercepts AI activity inside VS Code
+- Opens a dark React webview lock screen
+- Lets users sign in with GitHub or continue anonymously
+- Tracks streaks and solves in Neon PostgreSQL when authenticated
+- Keeps anonymous mode fully local with no leaderboard sync
+- Powers a separate leaderboard UI at `http://localhost:5173`
 
-## The idea
+## Architecture
 
-AI pair programmers are fast. You should be too.
+### Extension
 
-SideChick intercepts your session the moment an AI tool kicks in and opens a challenge flow in parallel. Pass it, and the AI is yours. Dismiss it, and your streak resets. Simple.
+- `extension.js` coordinates onboarding, auth, AI interception, challenge launch, and score sync
+- `src/auth.js` stores GitHub and backend credentials in VS Code SecretStorage
+- `src/backendClient.js` proxies all backend traffic through the extension host
+- `src/challengeService.js` chooses DSA or dev challenges based on `sidechick.mode`
+- `src/providers/lc.js` runs local JavaScript DSA evaluation
+- `src/providers/mern.js` opens a broken workspace and verifies it with `npm test`
 
----
+### Backend
 
-## Two challenge modes
+- `backend/src/server.js` runs the Express API
+- `backend/src/db/postgres.js` is the Postgres adapter using `pg`
+- `backend/db/schema.sql` initializes Neon PostgreSQL tables
+- Authenticated score and leaderboard APIs live under `backend/src/routes`
 
-### DSA mode
+### Webview
 
-Pick a LeetCode problem, solve it in VS Code, submit for a real verdict.
+- `webview-ui` is the React + Vite UI rendered inside the VS Code webview
+- The webview is locked behind a strict CSP and cannot call external APIs directly
+- Monaco runs locally inside the webview bundle
 
-- Fetches a real LeetCode problem via the GraphQL API
-- Renders the full problem statement inside a VS Code themed webview
-- Gives you a Monaco editor with starter code when LeetCode provides it
-- Submits using your `LEETCODE_SESSION` and `csrftoken`
-- Polls for the verdict and shows a pass or fail overlay
+## Modes
 
+### DSA
 
-### Dev mode
+- Uses local SideChick problem definitions or a remote problem from the backend
+- Solves run locally in the extension host
+- Passing sends `accepted` to the backend when the user is signed in
 
-Open a broken project in a fresh VS Code window and fix it before the AI does.
+### Dev
 
-- Opens a bug-fix challenge in a new VS Code window
-- Prefers remote admin-uploaded challenges from the backend
-- Falls back to bundled local problems if the backend is empty
-- Hides the test folder by default so you cannot peek
-- Evaluates with `npm test`
+- Copies a broken MERN template into a temp workspace
+- Opens that workspace in a new VS Code window
+- Verifies the fix with `npm test`
+- Passing sends `passed` to the backend when the user is signed in
 
+## Auth Model
 
----
+- On first activation, SideChick offers:
+  - `Log in with GitHub`
+  - `Continue Anonymously`
+- GitHub sign-in uses `vscode.authentication.getSession('github', ['read:user'])`
+- The backend returns a JWT used for score sync and user stats
+- Anonymous users still get blocked by SideChick, but nothing is synced to Neon
 
-## Score backend
+## Backend APIs
 
-SideChick ships with a lightweight Express + SQLite backend that:
+- `POST /api/auth/login`
+- `POST /api/user/score`
+- `GET /api/user/stats`
+- `GET /api/leaderboard/global`
+- `GET /api/leaderboard/teams`
+- `GET /api/problems/:type/random`
 
-- Stores users and challenge results
-- Returns solved counts and streaks
-- Serves remote Dev problem archives
-- Supports admin-only uploads for new Dev problems
+## Configuration
 
----
+### Extension settings
 
-## Commands
+- `sidechick.backendBaseUrl`
+- `sidechick.mode` with values `dsa`, `dev`, or `random`
 
-| Command | What it does |
-|---|---|
-| `Sidechick: Start Challenge` | Opens the mode picker and starts a challenge |
-| `Sidechick: Configure LeetCode Auth` | Stores your LC session cookie and csrf token |
-| `Sidechick: Start MERN Bug Mode` | Directly opens a Dev mode bug-fix challenge |
+### Backend environment
 
----
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `PORT`
 
-## Notes
+## Run It
 
-- Dev mode always opens in a new VS Code window
-- DSA mode runs inside the custom challenge panel in the current window
-- The webview and panel use the SideChick icon and monochrome branding
+### 1. Start the backend
 
+```powershell
+cd backend
+$env:DATABASE_URL="your_neon_connection_string"
+$env:JWT_SECRET="your_jwt_secret"
+npm run db:init
+npm run dev
+```
 
----
+### 2. Build or rebuild the webview bundle
 
-## Two challenge modes
+```powershell
+npm run build:webview
+```
 
-### DSA mode
+### 3. Run the leaderboard app
 
-Pick a LeetCode problem, solve it in VS Code, submit for a real verdict.
+```powershell
+cd leaderboard-ui
+npm run dev
+```
 
-- Fetches a real LeetCode problem via the GraphQL API
-- Renders the full problem statement inside a VS Code themed webview
-- Gives you a Monaco editor with starter code when LeetCode provides it
-- Submits using your `LEETCODE_SESSION` and `csrftoken`
-- Polls for the verdict and shows a pass or fail overlay
+### 4. Launch the extension
 
+- Open this repo in VS Code
+- Press `F5` to start the extension development host
+- Trigger `Sidechick: Start Challenge` or let an AI interceptor fire
 
-### Dev mode
+## More Detail
 
-Open a broken project in a fresh VS Code window and fix it before the AI does.
-
-- Opens a bug-fix challenge in a new VS Code window
-- Prefers remote admin-uploaded challenges from the backend
-- Falls back to bundled local problems if the backend is empty
-- Hides the test folder by default so you cannot peek
-- Evaluates with `npm test`
-
-
----
-
-## Score backend
-
-SideChick ships with a lightweight Express + SQLite backend that:
-
-- Stores users and challenge results
-- Returns solved counts and streaks
-- Serves remote Dev problem archives
-- Supports admin-only uploads for new Dev problems
-
----
-
-## Commands
-
-| Command | What it does |
-|---|---|
-| `Sidechick: Start Challenge` | Opens the mode picker and starts a challenge |
-| `Sidechick: Configure LeetCode Auth` | Stores your LC session cookie and csrf token |
-| `Sidechick: Start MERN Bug Mode` | Directly opens a Dev mode bug-fix challenge |
-
----
-
-## Notes
-
-- Dev mode always opens in a new VS Code window
-- DSA mode runs inside the custom challenge panel in the current window
-- The webview and panel use the SideChick icon and monochrome branding
-
+- Scoring and leaderboard rules: `flow.md`
+- Backend schema: `backend/db/schema.sql`

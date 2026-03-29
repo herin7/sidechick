@@ -2,7 +2,7 @@
   "name": "sidechick",
   "displayName": "Sidechick",
   "description": "Your coding challenge sidekick inside VS Code",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -13,9 +13,7 @@
     "url": "https://github.com/herin7/sidechick"
   },
   "activationEvents": [
-    "onCommand:sidechick.startChallenge",
-    "onCommand:sidechick.configureLeetCodeAuth",
-    "onCommand:sidechick.startMernBugMode"
+    "onStartupFinished"
   ],
   "publisher": "HerinSoni",
   "icon": "media/sidechick.png",
@@ -23,20 +21,28 @@
   "contributes": {
     "commands": [
       {
-        "command": "sidechick.helloWorld",
-        "title": "Hello World"
-      },
-      {
         "command": "sidechick.startChallenge",
         "title": "Start Challenge",
         "category": "Sidechick",
         "icon": "$(beaker)"
       },
       {
-        "command": "sidechick.configureLeetCodeAuth",
-        "title": "Configure LeetCode Auth",
+        "command": "sidechick.signInWithGitHub",
+        "title": "Sign In With GitHub",
+        "category": "Sidechick",
+        "icon": "$(github)"
+      },
+      {
+        "command": "sidechick.loginLeetCode",
+        "title": "Sign In to LeetCode",
         "category": "Sidechick",
         "icon": "$(key)"
+      },
+      {
+        "command": "sidechick.continueAnonymously",
+        "title": "Continue Anonymously",
+        "category": "Sidechick",
+        "icon": "$(person)"
       },
       {
         "command": "sidechick.startMernBugMode",
@@ -50,13 +56,18 @@
       "properties": {
         "sidechick.backendBaseUrl": {
           "type": "string",
-          "default": "https://sidechick.onrender.com",
+          "default": "http://127.0.0.1:3000",
           "description": "Base URL for the Sidechick backend service."
         },
-        "sidechick.userHandle": {
+        "sidechick.mode": {
           "type": "string",
-          "default": "",
-          "description": "Optional handle used when reporting scores to the Sidechick backend."
+          "enum": [
+            "dsa",
+            "dev",
+            "random"
+          ],
+          "default": "random",
+          "description": "Default SideChick challenge mode used when AI interception fires."
         }
       }
     }

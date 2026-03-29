@@ -1,244 +1,494 @@
 const vscode = require('vscode');
 const { ChallengePanel } = require('./src/challengePanel');
-const { promptAndSaveCredentials } = require('./src/auth');
-const { fetchRandomProblem } = require('./src/providers/lc');
-const { createMernChallenge } = require('./src/providers/mern');
+const {
+  clearStoredAuth,
+  getSessionState,
+  hasSeenOnboarding,
+  markOnboardingSeen,
+  setAnonymousMode,
+  signInWithGitHub
+} = require('./src/auth');
+const { createBackendClient } = require('./src/backendClient');
+const { LeetCodeAPI } = require('./src/providers/leetcodeApi');
+const {
+  createChallenge,
+  openDevWorkspace,
+  runDsaCode,
+  verifyDevChallenge
+} = require('./src/challengeService');
 
-const AUTO_PROMPT_LINE_THRESHOLD = 25;
-const AUTO_PROMPT_IDLE_MS = 10000;
-const AUTO_PROMPT_COOLDOWN_MS = 15000;
+// ── Bulk-insert detection config ────────────────────────────────────
+const BULK_INSERT_LINE_THRESHOLD = 50;
+const TRIGGER_DEBOUNCE_MS = 5 * 60 * 1000; // 5 minutes
 
-function setIdleStatus(statusBarItem) {
-  statusBarItem.text = '$(beaker) Sidechick';
-  statusBarItem.tooltip = 'Continue or start a Sidechick challenge';
+function createRuntime(context) {
+  return {
+    context,
+    apiClient: createBackendClient(context),
+    lcApi: new LeetCodeAPI(context),
+    statusBarItem: null,
+    currentChallenge: null,
+    currentRunAborter: null,
+    currentSessionState: {
+      isAnonymous: false,
+      isAuthenticated: false,
+      user: null,
+      streak: 0,
+      solved: 0
+    },
+    lastTriggerAt: 0
+  };
 }
 
-function getChangedLineCount(event) {
-  return event.contentChanges.reduce((total, change) => {
-    const addedLines = change.text ? change.text.split(/\r?\n/).length - 1 : 0;
-    const removedLines = Math.max(0, change.range.end.line - change.range.start.line);
-    return total + Math.max(1, addedLines + removedLines);
-  }, 0);
+function updateStatusBar(runtime) {
+  if (runtime.currentSessionState.isAuthenticated) {
+    runtime.statusBarItem.text = `$(flame) SideChick ${runtime.currentSessionState.streak}`;
+    runtime.statusBarItem.tooltip = `Signed in as ${runtime.currentSessionState.user?.handle || 'GitHub user'}`;
+    return;
+  }
+
+  if (runtime.currentSessionState.isAnonymous) {
+    runtime.statusBarItem.text = '$(beaker) SideChick Anonymous';
+    runtime.statusBarItem.tooltip = 'Anonymous mode: local challenges only, no cloud sync.';
+    return;
+  }
+
+  runtime.statusBarItem.text = '$(beaker) SideChick';
+  runtime.statusBarItem.tooltip = 'Start a SideChick challenge or sign in with GitHub.';
 }
 
-async function showChallengePicker(context, statusBarItem, source) {
-  const hasExistingChallenge = Boolean(ChallengePanel.currentPanel);
-  const items = [];
+async function refreshSessionState(runtime) {
+  runtime.currentSessionState = await getSessionState(runtime.context, runtime.apiClient);
+  updateStatusBar(runtime);
 
-  if (hasExistingChallenge) {
-    items.push({
-      label: 'Continue current',
-      description: 'Reveal the existing Sidechick challenge',
-      value: 'continue'
+  if (ChallengePanel.currentPanel) {
+    ChallengePanel.currentPanel.setSessionState(runtime.currentSessionState);
+  }
+}
+
+async function hydratePanel(runtime, panel, source) {
+  panel.hydrate({
+    challenge: runtime.currentChallenge?.webviewData || null,
+    sessionState: {
+      ...runtime.currentSessionState,
+      source
+    }
+  });
+}
+
+function clearCurrentChallenge(runtime) {
+  runtime.currentChallenge = null;
+  updateStatusBar(runtime);
+}
+
+async function maybeCloseChallenge(runtime, isMern) {
+  clearCurrentChallenge(runtime);
+
+  if (isMern) {
+    vscode.window.showInformationMessage('Challenge complete! You can now safely close the Dev workspace window.');
+  }
+
+  if (ChallengePanel.currentPanel) {
+    setTimeout(() => {
+      ChallengePanel.currentPanel?.dispose();
+    }, 1200);
+  }
+}
+
+async function reportChallengePass(runtime, challenge, timeSecs) {
+  if (!runtime.currentSessionState.isAuthenticated) {
+    return;
+  }
+
+  try {
+    await runtime.apiClient.reportChallengeResult({
+      type: challenge.scoringType,
+      problemId: challenge.problemId,
+      status: challenge.kind === 'mern' ? 'passed' : 'accepted',
+      timeSecs
+    });
+
+    await refreshSessionState(runtime);
+  } catch (error) {
+    console.warn('[SideChick] score sync failed after a successful challenge:', error.message);
+    vscode.window.showWarningMessage(
+      'SideChick recorded a local pass, but cloud score sync failed for this session.'
+    );
+  }
+}
+
+async function runDsa(runtime, code, langSlug, publicOnly, timerSeconds) {
+  const panel = ChallengePanel.currentPanel;
+  if (!panel || !runtime.currentChallenge) {
+    return;
+  }
+
+  panel.setBusy(publicOnly ? 'Running sample tests...' : 'Checking your solution...');
+
+  const aborter = { cancelled: false };
+  runtime.currentRunAborter = aborter;
+
+  try {
+    let result;
+    if (runtime.currentChallenge.webviewData?.isLcApi) {
+      if (!runtime.lcApi.isAuthenticated()) {
+        throw new Error('You must log in to LeetCode (Command: `Sidechick: Sign in to LeetCode`) to submit live challenges.');
+      }
+      const q = runtime.currentChallenge.webviewData;
+      const runId = publicOnly
+        ? await runtime.lcApi.interpretSolution(q.titleSlug, q.questionId, code, langSlug, q.sampleTestCase || "")
+        : await runtime.lcApi.submitSolution(q.titleSlug, q.questionId, code, langSlug);
+
+      const pollRes = await runtime.lcApi.pollSubmissionResult(runId, aborter);
+
+      let statusCode = pollRes.status_code === 10 ? 10 : -1;
+      let output = `Status: ${pollRes.status_msg || 'Unknown'}\n`;
+      if (pollRes.compile_error) output += `\nCompile Error:\n${pollRes.compile_error}\n`;
+      if (pollRes.runtime_error) output += `\nRuntime Error:\n${pollRes.runtime_error}\n`;
+      if (pollRes.code_output) output += `\nStdout:\n${pollRes.code_output}\n`;
+      if (pollRes.expected_output) output += `\nExpected:\n${pollRes.expected_output}\n`;
+      if (!publicOnly && pollRes.total_correct !== undefined) {
+        output += `\nPassed ${pollRes.total_correct} / ${pollRes.total_testcases} testcases.`;
+      }
+
+      result = {
+        output,
+        verdict: {
+          status: pollRes.status_msg || (statusCode === 10 ? 'Accepted' : 'Finished'),
+          statusCode,
+          output: output.trim(),
+          error: statusCode === 10 ? undefined : 'Check output'
+        }
+      };
+    } else {
+      result = await runDsaCode(runtime.currentChallenge, code, { publicOnly, langSlug });
+    }
+
+    if (aborter.cancelled) return;
+
+    panel.clearBusy();
+    panel.sendExecutionOutput(result.output);
+    panel.sendVerdict(result.verdict);
+
+    if (!publicOnly && result.verdict.statusCode === 10) {
+      await reportChallengePass(runtime, runtime.currentChallenge, timerSeconds);
+      await maybeCloseChallenge(runtime);
+    }
+  } catch (error) {
+    if (aborter.cancelled) return;
+    panel.clearBusy();
+    panel.sendVerdict({
+      status: 'Failed',
+      statusCode: -1,
+      error: error.message,
+      output: error.message
+    });
+  } finally {
+    if (runtime.currentRunAborter === aborter) {
+      runtime.currentRunAborter = null;
+    }
+  }
+}
+
+async function runMern(runtime, timerSeconds) {
+  const panel = ChallengePanel.currentPanel;
+  if (!panel || !runtime.currentChallenge) {
+    return;
+  }
+
+  panel.setBusy('Running MERN verification...');
+
+  try {
+    const result = await verifyDevChallenge(runtime.currentChallenge);
+    panel.clearBusy();
+    panel.sendExecutionOutput(result.output || 'No test output was captured.');
+    panel.sendVerdict({
+      status: result.status,
+      statusCode: result.statusCode,
+      output: result.output,
+      error: result.statusCode === 10 ? undefined : result.output
+    });
+
+    if (result.statusCode === 10) {
+      await reportChallengePass(runtime, runtime.currentChallenge, timerSeconds);
+      await maybeCloseChallenge(runtime, true);
+    }
+  } catch (error) {
+    panel.clearBusy();
+    panel.sendVerdict({
+      status: 'Failed',
+      statusCode: -1,
+      output: error.message,
+      error: error.message
     });
   }
+}
 
-  items.push(
-    {
-      label: 'New DSA',
-      description: 'Load a fresh LeetCode challenge',
-      value: 'dsa'
-    },
-    {
-      label: 'New Dev',
-      description: 'Open a fresh local development challenge',
-      value: 'dev'
-    },
-    {
-      label: 'Not now',
-      description: 'Dismiss this prompt',
-      value: 'dismiss'
-    }
+async function handlePanelMessage(runtime, message, panel, source) {
+  switch (message?.type) {
+    case 'ready':
+      panel.markReady();
+      await hydratePanel(runtime, panel, source);
+      break;
+
+    case 'loginWithGithub':
+      try {
+        panel.setBusy('Signing in with GitHub...');
+        const result = await signInWithGitHub(runtime.context, runtime.apiClient);
+        panel.clearBusy();
+
+        if (!result) {
+          panel.sendError('GitHub sign-in was cancelled.');
+          return;
+        }
+
+        await refreshSessionState(runtime);
+        panel.setSessionState({
+          ...runtime.currentSessionState,
+          source
+        });
+      } catch (error) {
+        panel.clearBusy();
+        panel.sendError(`GitHub sign-in failed: ${error.message}`);
+      }
+      break;
+
+    case 'continueAnonymous':
+      await setAnonymousMode(runtime.context, true);
+      await clearStoredAuth(runtime.context);
+      await refreshSessionState(runtime);
+      panel.setSessionState({
+        ...runtime.currentSessionState,
+        source
+      });
+      break;
+
+    case 'runDsa':
+      await runDsa(runtime, String(message.code || ''), String(message.langSlug || 'javascript'), true, Number(message.timerSeconds || 0));
+      break;
+
+    case 'submitDsa':
+      await runDsa(runtime, String(message.code || ''), String(message.langSlug || 'javascript'), false, Number(message.timerSeconds || 0));
+      break;
+
+    case 'cancelRun':
+      if (runtime.currentRunAborter) {
+        runtime.currentRunAborter.cancelled = true;
+        panel.clearBusy();
+        panel.sendExecutionOutput('Execution cancelled by user.');
+      }
+      break;
+
+    case 'skipChallenge':
+      if (runtime.currentChallenge) {
+        clearCurrentChallenge(runtime);
+        await openChallenge(runtime, { source: 'manual', forcedMode: runtime.currentChallenge?.mode });
+      }
+      break;
+
+    case 'openMernWorkspace':
+      if (runtime.currentChallenge?.kind === 'mern') {
+        await openDevWorkspace(runtime.currentChallenge);
+      }
+      break;
+
+    case 'verifyMern':
+      await runMern(runtime, Number(message.timerSeconds || 0));
+      break;
+
+    default:
+      break;
+  }
+}
+
+async function openChallenge(runtime, options = {}) {
+  if (ChallengePanel.currentPanel && runtime.currentChallenge) {
+    const existingPanel = ChallengePanel.createOrShow(
+      runtime.context,
+      (message, currentPanel) => handlePanelMessage(runtime, message, currentPanel, options.source),
+      () => clearCurrentChallenge(runtime)
+    );
+    await hydratePanel(runtime, existingPanel, options.source);
+    existingPanel.reveal();
+    return;
+  }
+
+  const panel = ChallengePanel.createOrShow(
+    runtime.context,
+    (message, currentPanel) => handlePanelMessage(runtime, message, currentPanel, options.source),
+    () => clearCurrentChallenge(runtime)
+  );
+  panel.setBusy('Preparing your SideChick challenge...');
+
+  try {
+    runtime.currentChallenge = await createChallenge({
+      apiClient: runtime.apiClient,
+      lcApi: runtime.lcApi,
+      sessionState: runtime.currentSessionState,
+      forcedMode: options.forcedMode
+    });
+
+    panel.clearBusy();
+    panel.setChallengeData(runtime.currentChallenge.webviewData);
+    await hydratePanel(runtime, panel, options.source);
+    panel.reveal();
+  } catch (error) {
+    clearCurrentChallenge(runtime);
+    panel.clearBusy();
+    panel.sendError(error.message);
+    vscode.window.showErrorMessage(`SideChick: ${error.message}`);
+  }
+}
+
+async function runOnboarding(runtime) {
+  if (hasSeenOnboarding(runtime.context)) {
+    return;
+  }
+
+  await markOnboardingSeen(runtime.context);
+
+  const selection = await vscode.window.showInformationMessage(
+    'SideChick: Gamify your AI-assisted coding. Log in with GitHub for streaks & leaderboards, or go anonymous.',
+    'Log in with GitHub',
+    'Continue Anonymously'
   );
 
-  const selection = await vscode.window.showQuickPick(items, {
-    title: 'Sidechick',
-    placeHolder:
-      source === 'activity'
-        ? 'Sidechick is ready. Continue your current challenge or start a new one.'
-        : 'Choose a Sidechick challenge mode.'
-  });
-
-  if (!selection || selection.value === 'dismiss') {
-    return;
-  }
-
-  if (selection.value === 'continue' && ChallengePanel.currentPanel) {
-    ChallengePanel.currentPanel.reveal();
-    return;
-  }
-
-  if (selection.value === 'dev') {
-    await startDevChallenge(context, statusBarItem);
-    return;
-  }
-
-  await startDsaChallenge(context, statusBarItem);
-}
-
-async function startDsaChallenge(context, statusBarItem) {
-  ChallengePanel.createOrShow(context);
-  const panel = ChallengePanel.currentPanel;
-
-  statusBarItem.text = '$(sync~spin) Loading DSA...';
-  statusBarItem.tooltip = 'Fetching a LeetCode problem...';
-
-  try {
-    const problem = await fetchRandomProblem('MEDIUM');
-    if (panel) {
-      panel.setProblemData(problem);
-    }
-  } catch (err) {
-    if (panel) {
-      panel.sendError(
-        `Could not fetch a LeetCode problem.\n\nReason: ${err.message}\n\nCheck your connection and try again.`
-      );
-    } else {
-      vscode.window.showErrorMessage(`Sidechick: ${err.message}`);
-    }
-  } finally {
-    setIdleStatus(statusBarItem);
-  }
-}
-
-async function startDevChallenge(context, statusBarItem) {
-  statusBarItem.text = '$(sync~spin) Loading Dev...';
-  statusBarItem.tooltip = 'Preparing a local development challenge...';
-
-  try {
-    const challenge = await createMernChallenge();
-    if (ChallengePanel.currentPanel) {
-      ChallengePanel.currentPanel.dispose();
-    }
-
-    await vscode.commands.executeCommand(
-      'vscode.openFolder',
-      vscode.Uri.file(challenge.tempDir),
-      true
-    );
-  } catch (err) {
-    vscode.window.showErrorMessage(`Sidechick: ${err.message}`);
-  } finally {
-    setIdleStatus(statusBarItem);
-  }
-}
-
-function registerAutoPromptWatcher(context, statusBarItem) {
-  let accumulatedChangedLines = 0;
-  let idleTimer;
-  let promptInFlight = false;
-  let lastPromptAt = 0;
-
-  const resetActivity = () => {
-    accumulatedChangedLines = 0;
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = undefined;
-    }
-  };
-
-  const maybeShowPrompt = async (source) => {
-    const now = Date.now();
-    if (promptInFlight || now - lastPromptAt < AUTO_PROMPT_COOLDOWN_MS) {
-      return;
-    }
-
-    promptInFlight = true;
-    lastPromptAt = now;
-
+  if (selection === 'Log in with GitHub') {
     try {
-      await showChallengePicker(context, statusBarItem, source);
-    } finally {
-      promptInFlight = false;
-      resetActivity();
+      await signInWithGitHub(runtime.context, runtime.apiClient);
+      await refreshSessionState(runtime);
+      vscode.window.showInformationMessage('SideChick is connected to GitHub.');
+    } catch (error) {
+      vscode.window.showErrorMessage(`SideChick sign-in failed: ${error.message}`);
     }
-  };
+    return;
+  }
 
-  const scheduleIdlePrompt = () => {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-    }
-
-    idleTimer = setTimeout(() => {
-      maybeShowPrompt('activity').catch((error) => {
-        console.warn('[Sidechick] auto prompt failed:', error.message);
-      });
-    }, AUTO_PROMPT_IDLE_MS);
-  };
-
-  const textChangeDisposable = vscode.workspace.onDidChangeTextDocument((event) => {
-    if (event.document.uri.scheme !== 'file' || event.contentChanges.length === 0) {
-      return;
-    }
-
-    accumulatedChangedLines += getChangedLineCount(event);
-
-    if (accumulatedChangedLines >= AUTO_PROMPT_LINE_THRESHOLD) {
-      maybeShowPrompt('activity').catch((error) => {
-        console.warn('[Sidechick] auto prompt failed:', error.message);
-      });
-      return;
-    }
-
-    scheduleIdlePrompt();
-  });
-
-  context.subscriptions.push(textChangeDisposable);
-  context.subscriptions.push({
-    dispose: () => {
-      if (idleTimer) {
-        clearTimeout(idleTimer);
-      }
-    }
-  });
+  if (selection === 'Continue Anonymously') {
+    await setAnonymousMode(runtime.context, true);
+    await clearStoredAuth(runtime.context);
+    await refreshSessionState(runtime);
+  }
 }
 
-function activate(context) {
-  const statusBarItem = vscode.window.createStatusBarItem(
+// ── New trigger: detect bulk AI insertions via onDidChangeTextDocument ──
+
+function registerBulkInsertTrigger(runtime) {
+  runtime.context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument(async (event) => {
+      // Ignore output channels, git, etc.
+      if (event.document.uri.scheme !== 'file') {
+        return;
+      }
+
+      for (const change of event.contentChanges) {
+        const insertedLineCount = change.text.split('\n').length;
+
+        if (insertedLineCount >= BULK_INSERT_LINE_THRESHOLD) {
+          // Debounce: don't spam the user
+          const now = Date.now();
+          if (now - runtime.lastTriggerAt < TRIGGER_DEBOUNCE_MS) {
+            return;
+          }
+
+          runtime.lastTriggerAt = now;
+
+          console.log(
+            `[SideChick] Bulk insertion detected: ${insertedLineCount} lines in ${event.document.fileName}`
+          );
+
+          vscode.window
+            .showInformationMessage(
+              `🐣 Your AI just dropped ${insertedLineCount} lines. Want to earn a streak point?`,
+              'DSA Challenge',
+              'Dev Challenge',
+              'Not now'
+            )
+            .then((choice) => {
+              if (choice === 'DSA Challenge') {
+                openChallenge(runtime, { source: 'ai-bulk-insert', forcedMode: 'dsa' });
+              } else if (choice === 'Dev Challenge') {
+                openChallenge(runtime, { source: 'ai-bulk-insert', forcedMode: 'dev' });
+              }
+            });
+
+          return; // one trigger per event is enough
+        }
+      }
+    })
+  );
+}
+
+async function activate(context) {
+  const runtime = createRuntime(context);
+
+  runtime.statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Left,
     100
   );
-  statusBarItem.command = 'sidechick.startChallenge';
-  setIdleStatus(statusBarItem);
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem);
+  runtime.statusBarItem.command = 'sidechick.startChallenge';
+  runtime.statusBarItem.show();
+  context.subscriptions.push(runtime.statusBarItem);
 
-  const helloDisposable = vscode.commands.registerCommand(
-    'sidechick.helloWorld',
-    () => vscode.window.showInformationMessage('Hello World from sidechick!')
-  );
-
-  const configureAuthDisposable = vscode.commands.registerCommand(
-    'sidechick.configureLeetCodeAuth',
-    async () => {
-      await promptAndSaveCredentials(context);
-    }
-  );
-
-  const challengeDisposable = vscode.commands.registerCommand(
-    'sidechick.startChallenge',
-    async () => {
-      await showChallengePicker(context, statusBarItem, 'manual');
-    }
-  );
-
-  const mernDisposable = vscode.commands.registerCommand(
-    'sidechick.startMernBugMode',
-    async () => {
-      await startDevChallenge(context, statusBarItem);
-    }
-  );
+  await runtime.lcApi.loadAuth();
+  await refreshSessionState(runtime);
+  await runOnboarding(runtime);
 
   context.subscriptions.push(
-    helloDisposable,
-    configureAuthDisposable,
-    challengeDisposable,
-    mernDisposable
+    vscode.commands.registerCommand('sidechick.startChallenge', async () => {
+      const selection = await vscode.window.showQuickPick(
+        [
+          { label: '$(code) DSA Challenge', description: 'Algorithms & Data Structures', value: 'dsa' },
+          { label: '$(tools) Dev Challenge', description: 'MERN Stack Bugfix', value: 'dev' }
+        ],
+        { placeHolder: 'Select a SideChick challenge mode' }
+      );
+
+      if (selection) {
+        await openChallenge(runtime, { source: 'manual', forcedMode: selection.value });
+      }
+    }),
+    vscode.commands.registerCommand('sidechick.startMernBugMode', async () => {
+      await openChallenge(runtime, { source: 'manual-dev', forcedMode: 'dev' });
+    }),
+    vscode.commands.registerCommand('sidechick.signInWithGitHub', async () => {
+      await signInWithGitHub(runtime.context, runtime.apiClient);
+      await refreshSessionState(runtime);
+      vscode.window.showInformationMessage('SideChick signed in with GitHub.');
+    }),
+    vscode.commands.registerCommand('sidechick.loginLeetCode', async () => {
+      const session = await vscode.window.showInputBox({
+        prompt: 'Enter your LEETCODE_SESSION cookie',
+        password: true,
+        ignoreFocusOut: true
+      });
+      if (!session) return;
+
+      const csrf = await vscode.window.showInputBox({
+        prompt: 'Enter your csrftoken cookie',
+        password: true,
+        ignoreFocusOut: true
+      });
+      if (!csrf) return;
+
+      await runtime.lcApi.setAuth(session, csrf);
+      vscode.window.showInformationMessage('Successfully saved LeetCode credentials!');
+    }),
+    vscode.commands.registerCommand('sidechick.continueAnonymously', async () => {
+      await setAnonymousMode(runtime.context, true);
+      await clearStoredAuth(runtime.context);
+      await refreshSessionState(runtime);
+      vscode.window.showInformationMessage('SideChick is now running anonymously.');
+    })
   );
 
-  registerAutoPromptWatcher(context, statusBarItem);
+  registerBulkInsertTrigger(runtime);
+  updateStatusBar(runtime);
 }
 
 function deactivate() { }
 
-module.exports = { activate, deactivate };
+module.exports = {
+  activate,
+  deactivate
+};
