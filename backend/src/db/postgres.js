@@ -374,7 +374,8 @@ const getRandomActiveProblemByType = statement({
           id,
           type,
           slug,
-          title,
+  
+        title,
           description,
           difficulty,
           archive_path,
