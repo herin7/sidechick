@@ -1,118 +1,56 @@
-# SideChick
+# SideChick 🐣
 
-SideChick is a VS Code extension that interrupts AI-assisted coding with a challenge gate. Before Copilot, Cursor, or Claude Code can keep helping, the developer has to clear a DSA problem or fix a broken MERN app.
+The coding challenge sidekick that shows up while your AI does the work.
 
-## What It Does
+---
 
-- Intercepts AI activity inside VS Code
-- Opens a dark React webview lock screen
-- Lets users sign in with GitHub or continue anonymously
-- Tracks streaks and solves in Neon PostgreSQL when authenticated
-- Keeps anonymous mode fully local with no leaderboard sync
-- Powers a separate leaderboard UI at `http://localhost:5173`
+You're using Copilot. Cursor. Claude Code. They're writing code faster than you ever could — and that's fine. SideChick isn't here to stop that.
 
-## Architecture
+It's here to make sure *you* don't go soft in the process.
 
-### Extension
+While your AI generates, refactors, and autocompletes — SideChick quietly drops a challenge on the side. A DSA problem. A broken MERN app to debug. Nothing that blocks your flow. Just a little something to keep the fundamentals alive while the machines do the heavy lifting.
 
-- `extension.js` coordinates onboarding, auth, AI interception, challenge launch, and score sync
-- `src/auth.js` stores GitHub and backend credentials in VS Code SecretStorage
-- `src/backendClient.js` proxies all backend traffic through the extension host
-- `src/challengeService.js` chooses DSA or dev challenges based on `sidechick.mode`
-- `src/providers/lc.js` runs local JavaScript DSA evaluation
-- `src/providers/mern.js` opens a broken workspace and verifies it with `npm test`
+Think of it as the gym you go to because you know sitting at a desk all day is doing something to your body. Except the desk is your IDE and the gym is a busted Express middleware that needs fixing.
 
-### Backend
+---
 
-- `backend/src/server.js` runs the Express API
-- `backend/src/db/postgres.js` is the Postgres adapter using `pg`
-- `backend/db/schema.sql` initializes Neon PostgreSQL tables
-- Authenticated score and leaderboard APIs live under `backend/src/routes`
+## Why "SideChick"?
 
-### Webview
+It's never the main event.
+Your AI is. Your code is. Your deadlines are.
 
-- `webview-ui` is the React + Vite UI rendered inside the VS Code webview
-- The webview is locked behind a strict CSP and cannot call external APIs directly
-- Monaco runs locally inside the webview bundle
+SideChick just lives on the side — always there, always ready with a challenge — making sure that when the AI scaffolding eventually falls away, you still know what you're doing.
 
-## Modes
+---
 
-### DSA
+## How It Works
 
-- Uses local SideChick problem definitions or a remote problem from the backend
-- Solves run locally in the extension host
-- Passing sends `accepted` to the backend when the user is signed in
+When SideChick detects a significant AI-assisted insertion in your editor, it surfaces a challenge alongside your work:
 
-### Dev
+**DSA mode** — a LeetCode-style problem solved right inside VS Code. Monaco editor, live verdict, no tab switching.
 
-- Copies a broken MERN template into a temp workspace
-- Opens that workspace in a new VS Code window
-- Verifies the fix with `npm test`
-- Passing sends `passed` to the backend when the user is signed in
+**Dev mode** — a broken MERN project spawns in a new workspace. Tests are failing. You know what to do.
 
-## Auth Model
+Solve it, earn the streak point, move on. Your AI was never going anywhere.
 
-- On first activation, SideChick offers:
-  - `Log in with GitHub`
-  - `Continue Anonymously`
-- GitHub sign-in uses `vscode.authentication.getSession('github', ['read:user'])`
-- The backend returns a JWT used for score sync and user stats
-- Anonymous users still get blocked by SideChick, but nothing is synced to Neon
+---
 
-## Backend APIs
+## Streaks & Leaderboards
 
-- `POST /api/auth/login`
-- `POST /api/user/score`
-- `GET /api/user/stats`
-- `GET /api/leaderboard/global`
-- `GET /api/leaderboard/teams`
-- `GET /api/problems/:type/random`
+Sign in with GitHub and every challenge you clear builds your streak and total solve count — synced live to a leaderboard your whole team can see.
+[Leaderboard Link](https://sidechick-six.vercel.app/)
+Find out who's been growing alongside their AI and who's been purely vibing.
 
-## Configuration
+Anonymous mode available for the self-aware but commitment-averse.
 
-### Extension settings
+---
 
-- `sidechick.backendBaseUrl`
-- `sidechick.mode` with values `dsa`, `dev`, or `random`
+## Get It
 
-### Backend environment
+Search **SideChick** on the VS Code Marketplace.
 
-- `DATABASE_URL`
-- `JWT_SECRET`
-- `PORT`
+Set `sidechick.mode` to `dsa`, `dev`, or `random` and let it run in the background.
 
-## Run It
+---
 
-### 1. Start the backend
-
-```powershell
-cd backend
-$env:DATABASE_URL="your_neon_connection_string"
-$env:JWT_SECRET="your_jwt_secret"
-npm run db:init
-npm run dev
-```
-
-### 2. Build or rebuild the webview bundle
-
-```powershell
-npm run build:webview
-```
-
-### 3. Run the leaderboard app
-
-```powershell
-cd leaderboard-ui
-npm run dev
-```
-
-### 4. Launch the extension
-
-- Open this repo in VS Code
-- Press `F5` to start the extension development host
-- Trigger `Sidechick: Start Challenge` or let an AI interceptor fire
-
-## More Detail
-
-- Scoring and leaderboard rules: `flow.md`
-- Backend schema: `backend/db/schema.sql`
+*Your AI keeps working. You keep growing. That's the whole idea.*

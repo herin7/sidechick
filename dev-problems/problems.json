@@ -1,12 +1,16 @@
 [
-  {
-    "id": "cart-summary-bug",
-    "title": "Cart Summary Bug",
-    "folder": "cart-summary-bug"
-  },
-  {
-    "id": "session-timeout-bug",
-    "title": "Session Timeout Bug",
-    "folder": "session-timeout-bug"
-  }
+  { "id": "auth-middleware-bug", "title": "Fix the Auth Middleware", "folder": "auth-middleware-bug" },
+  { "id": "cart-summary-bug", "title": "Cart Summary Bug", "folder": "cart-summary-bug" },
+  { "id": "code-snippets", "title": "Code Snippets", "folder": "code-snippets" },
+  { "id": "flash-cards", "title": "Flash Cards", "folder": "flash-cards" },
+  { "id": "habit-check", "title": "Habit Check", "folder": "habit-check" },
+  { "id": "link-shelf", "title": "Link Shelf", "folder": "link-shelf" },
+  { "id": "note-vault-debug", "title": "Note Vault Debugging", "folder": "note-vault" },
+  { "id": "poll-box", "title": "Poll Box", "folder": "poll-box" },
+  { "id": "rate-limiter-bug", "title": "Fix the Rate Limiter & Request Logger", "folder": "rate-limiter-bug" },
+  { "id": "reading-log", "title": "Reading Log", "folder": "reading-log" },
+  { "id": "session-timeout-bug", "title": "Session Timeout Bug", "folder": "session-timeout-bug" },
+  { "id": "split-tab", "title": "Split Tab", "folder": "split-tab" },
+  { "id": "stand-up-bot", "title": "Stand Up Bot", "folder": "stand-up-bot" },
+  { "id": "task-board", "title": "Task Board", "folder": "task-board" }
 ]

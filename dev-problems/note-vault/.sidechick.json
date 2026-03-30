@@ -1,0 +1,18 @@
+{
+  "id": "note-vault-debug",
+  "title": "Note Vault Debugging",
+  "description": [
+    "You have been handed a minimal Node.js + Express + MongoDB project.",
+    "It has standard JWT authentication and basic CRUD operations for notes.",
+    "However, there are exactly 4 bugs planted in the codebase.",
+    "Your objective is to fix all 4 bugs so that all Jest tests pass."
+  ],
+  "difficulty": "Medium",
+  "tags": [
+    "Node.js",
+    "Express",
+    "MongoDB",
+    "Debugging",
+    "Jest"
+  ]
+}

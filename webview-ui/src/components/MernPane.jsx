@@ -40,6 +40,14 @@ export default function MernPane({ challenge, challengeStartedAt, onMessage }) {
           </button>
           <button
             type="button"
+            className="action-button action-button--ghost"
+            onClick={() => sendMessage({ type: 'skipChallenge' })}
+            disabled={isBusy}
+          >
+            Change Problem
+          </button>
+          <button
+            type="button"
             className="action-button"
             onClick={() => sendMessage({ type: 'verifyMern', timerSeconds: getElapsedSeconds() })}
             disabled={isBusy}

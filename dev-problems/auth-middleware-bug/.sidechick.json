@@ -1,0 +1,11 @@
+{
+  "id": "auth-middleware-bug",
+  "title": "Fix the Auth Middleware",
+  "difficulty": "Medium",
+  "tags": ["auth", "jwt", "middleware"],
+  "description": [
+    "Users are getting 401 on every protected route even with a valid token.",
+    "Also, login always fails even with the correct password.",
+    "Fix the JWT middleware to properly verify the token and attach req.user, and fix the password comparison in the login route."
+  ]
+}

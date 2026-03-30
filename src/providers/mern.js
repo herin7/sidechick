@@ -6,7 +6,6 @@ const { v4: uuidv4 } = require('uuid');
 const { exec } = require('child_process');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
-const { getBackendBaseUrl } = require('../backendClient');
 
 function getCatalogPath() {
   return path.join(__dirname, '..', '..', 'dev-problems', 'problems.json');
@@ -73,14 +72,9 @@ function buildInstructionsHtml(metadata) {
 
 async function downloadAndExtractProblem(remoteProblem) {
   const tempDir = createTempDir(remoteProblem.slug || 'remote');
-  const baseUrl = getBackendBaseUrl();
-  const filename = path.basename(remoteProblem.archive_path || '');
-  const zipUrl = `${baseUrl}/uploads/problems/${filename}`;
 
-  const response = await axios({
-    method: 'get',
-    url: zipUrl,
-    responseType: 'arraybuffer'
+  const response = await axios.get(remoteProblem.archive_path, { 
+    responseType: 'arraybuffer' 
   });
 
   const zip = new AdmZip(Buffer.from(response.data));
@@ -89,17 +83,21 @@ async function downloadAndExtractProblem(remoteProblem) {
   return tempDir;
 }
 
-async function createMernChallenge(remoteProblem) {
+async function createMernChallenge(apiClient) {
   let tempDir;
   let metadata = {};
   let problem = {};
+  let remoteProblem = null;
 
-  if (remoteProblem && remoteProblem.archive_path) {
+  if (apiClient) {
     try {
-      tempDir = await downloadAndExtractProblem(remoteProblem);
-      writeWorkspaceSettings(tempDir);
-      metadata = readProblemMetadata(tempDir, {});
-      problem = remoteProblem;
+      remoteProblem = await apiClient.fetchRandomProblem('mern');
+      if (remoteProblem && remoteProblem.archive_path) {
+        tempDir = await downloadAndExtractProblem(remoteProblem);
+        writeWorkspaceSettings(tempDir);
+        metadata = readProblemMetadata(tempDir, remoteProblem);
+        problem = remoteProblem;
+      }
     } catch (err) {
       console.warn('[SideChick] Failed to download remote MERN problem, falling back to local.', err.message);
     }
@@ -120,7 +118,7 @@ async function createMernChallenge(remoteProblem) {
     webviewData: {
       id: metadata.id || problem.id || problem.slug,
       type: 'mern',
-      source: remoteProblem && tempDir ? 'cloud' : 'local',
+      source: remoteProblem && tempDir ? 'remote' : 'local',
       questionId: metadata.id || problem.id || problem.slug,
       title: metadata.title || problem.title,
       titleSlug: metadata.id || problem.id || problem.slug,

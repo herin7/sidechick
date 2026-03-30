@@ -1,0 +1,13 @@
+{
+  "id": "rate-limiter-bug",
+  "title": "Fix the Rate Limiter & Request Logger",
+  "difficulty": "Hard",
+  "tags": ["middleware", "express", "security"],
+  "description": [
+    "The API has a rate limiter (max 3 requests per window) and a request logger middleware — both are broken.",
+    "Bug 1: The rate limiter never resets — once you hit the limit, you're blocked forever even after the window expires.",
+    "Bug 2: The rate limiter blocks at 4 requests instead of 3 because the count check is off-by-one.",
+    "Bug 3: The logger middleware calls next() twice on non-error requests, causing Express to throw 'headers already sent'.",
+    "Fix all three so the tests pass."
+  ]
+}
